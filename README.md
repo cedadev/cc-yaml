@@ -25,7 +25,7 @@ This plugin allows check suites to be generated from *base checks* using YAML
 files containing parameters to call these base checks with.
 
 Currently all available *base checks* are in the [compliance-check-lib](https://github.com/joesingo/compliance-check-lib)
-repo (along with the base class required to create your own checks). To install:
+repo (along with the base class required to create your own checks).
 
 ### Example
 

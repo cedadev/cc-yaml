@@ -31,7 +31,9 @@ class YamlParser(object):
         cls.validate_config(config)
 
         # Build the attributes and methods for the generated class
-        class_properties = {}
+        class_properties = {
+            "_cc_spec_version": "1"
+        }
 
         supported_ds_sets = []
 

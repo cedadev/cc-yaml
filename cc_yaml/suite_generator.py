@@ -10,7 +10,7 @@ class SuiteGenerator(object):
     @classmethod
     def add_arguments(cls, parser):
         parser.add_argument("-y", "--yaml", action="append", dest="yaml_files",
-                            default=[], help="Specify YAMl files to generate "
+                            default=[], help="Specify YAML file(s) to generate "
                                              "check suites from")
 
     @classmethod

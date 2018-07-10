@@ -4,7 +4,7 @@ This repo holds a [compliance-checker](https://github.com/ioos/compliance-checke
 plugin that generates check suites from YAML descriptions.
 
 It is to be used with the [generator-plugins branch](https://github.com/joesingo/compliance-checker/tree/generator-plugins)
-of my fork of `compliance-checker` which is still a work in progress.
+of my fork of `compliance-checker`.
 
 ## Installation
 
@@ -14,7 +14,7 @@ and `compliance-check-lib`.
 ```
 pip install -e git+https://github.com/joesingo/compliance-checker@generator-plugins
 pip install -e git+https://github.com/joesingo/cc-yaml
-pip install -e git+https://github.com/joesingo/compliance-check-lib
+pip install -e git+https://github.com/joesingo/compliance-check-lib@cc-yaml
 
 compliance-checker --yaml <path-to-YAML-file> --test <test name> <dataset>
 ```
@@ -143,3 +143,40 @@ Methods:
 * `_get_result` is called after `_check_primary_arg` and is where the actual checking happens.
   Parameters from the YAML config are stored as a dictionary in `self.kwargs`.
   This method should return a `Result` object in the same way an ordinary check method would.
+
+### Including other YAML files
+
+Checks from one file can be included into another using the `__INCLUDE__`
+keyword, e.g.
+
+`suite_1.yml`:
+```
+suite_name: suite_one
+checks:
+checks:
+  - check_id: "filesize_check"
+    parameters: {"threshold": 1}
+    check_name: "checklib.register.FileSizeCheck"
+
+  - __INCLUDE__: suite_2.yml
+```
+
+`suite_2.yml`:
+```
+suite_name: suite_two
+checks:
+  - check_id: "attribute_check"
+    parameters: {"regex": "\\d+", "attribute": "author"}
+    check_name: "checklib.register.GlobalAttrRegexCheck"
+    check_level: "LOW"
+```
+
+Running `compliance-checker --yaml suite_1.yml --test suite_one <dataset>` will
+then run both `filesize_check` and `attribute_check`.
+
+Note that *all* checks from `suite_2.yml` will be included (if there is more
+than one). It is also possible to have several `__INCLUDE__` directives to
+include checks from several files.
+
+Recursive inclusions are also supported -- i.e. A includes checks from B which
+in turn include checks from C.

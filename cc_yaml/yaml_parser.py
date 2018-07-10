@@ -1,4 +1,6 @@
 import importlib
+import os
+
 import yaml
 
 from compliance_checker.base import BaseCheck
@@ -9,6 +11,23 @@ class YamlParser(object):
     Class to hold methods relating to generating a checker class from a YAML
     config file
     """
+    # Key used to include checks from another file
+    INCLUDE_KEYWORD = "__INCLUDE__"
+
+    @classmethod
+    def load_yaml(cls, filename):
+        """
+        Load a YAML document from a file
+
+        :param filename: Path to file
+        :return: YAML object as a dict
+        """
+        with open(filename) as f:
+            config = yaml.load(f)
+        if not isinstance(config, dict):
+            raise TypeError("Could not parse dictionary from YAML file '{}'"
+                            .format(filename))
+        return config
 
     @classmethod
     def get_checker_class(cls, config):
@@ -21,13 +40,13 @@ class YamlParser(object):
                        compliance-checker
         """
         # Treat config as a filename if it is a string
+        filename = None
         if isinstance(config, str):
-            with open(config) as f:
-                config = yaml.load(f)
+            filename = config
+            config = cls.load_yaml(filename)
 
-            if not isinstance(config, dict):
-                raise TypeError("Could not parse dictionary from YAML file")
-
+        if filename is not None:
+            cls.resolve_includes(config, os.path.dirname(filename))
         cls.validate_config(config)
 
         # Build the attributes and methods for the generated class
@@ -76,6 +95,46 @@ class YamlParser(object):
         class_properties["supported_ds"] = list(set.intersection(*supported_ds_sets))
 
         return type(config["suite_name"], (BaseCheck,), class_properties)
+
+    @classmethod
+    def resolve_includes(cls, config, base_directory):
+        """
+        Modify a config dict to include checks from other YAML files as
+        necessary
+
+        :param config:         The dictionary parsed from YAML file
+        :param base_directory: The directory relative to which the included
+                               files are found (if relative path is given)
+        """
+        # Avoid doing any validation here, since config is validated properly
+        # after includes
+        if "checks" not in config:
+            return
+
+        new_checks = []
+        for check_info in config["checks"]:
+            if len(check_info) == 1 and cls.INCLUDE_KEYWORD in check_info:
+                included = check_info[cls.INCLUDE_KEYWORD]
+                if os.path.isabs(included):
+                    fname = included
+                else:
+                    fname = os.path.join(base_directory, included)
+
+                included_config = cls.load_yaml(fname)
+                # Resolve includes recursively. Not that there is nothing in
+                # the code to prevent an endless loop if file A includes file B
+                # and B also includes A...
+                cls.resolve_includes(included_config, os.path.dirname(fname))
+                if "checks" not in included_config:
+                    print("WARNING: 'checks' attribute not found in included "
+                          "file '{}'".format(fname))
+                    continue
+
+                new_checks += included_config["checks"]
+            else:
+                new_checks.append(check_info)
+
+        config["checks"] = new_checks
 
     @classmethod
     def validate_config(cls, config):

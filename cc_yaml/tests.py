@@ -5,6 +5,8 @@ import pytest
 import inspect
 from copy import deepcopy
 
+import yaml
+
 from cc_yaml.yaml_parser import YamlParser
 from checklib.register import ParameterisableCheckBase
 from compliance_checker.base import BaseCheck
@@ -46,6 +48,10 @@ class TestYamlParsing(object):
         import a class from this file
         """
         return "{}.{}".format("cc_yaml.tests", cls)
+
+    def get_check_method_names(self, cls):
+        method_names = [x[0] for x in inspect.getmembers(cls, inspect.ismethod)]
+        return sorted([x for x in method_names if x.startswith("check_")])
 
     def test_missing_keys(self):
         """
@@ -123,9 +129,7 @@ class TestYamlParsing(object):
         assert BaseCheck in new_class.__bases__
 
         # Check the expected methods are present
-        method_names = [x[0] for x in inspect.getmembers(new_class, inspect.ismethod)]
-        assert "check_one" in method_names
-        assert "check_two" in method_names
+        assert self.get_check_method_names(new_class) == ["check_one", "check_two"]
 
         # Check name is correct
         assert new_class.__name__ == "test_suite"
@@ -208,3 +212,154 @@ class TestYamlParsing(object):
             assert False, "Default parameter not copied"
 
         assert val == "hello"
+
+    def test_include_other_yaml_file(self, tmpdir):
+        """
+        Check that checks from another YAML file can be included
+        """
+        # Create YAML files in different directories so we can check that
+        # included file is looked up relative to the first
+        dir1 = tmpdir.mkdir("dir1")
+        dir2 = tmpdir.mkdir("dir2")
+        dir3 = dir2.mkdir("dir2")
+        yaml1 = dir1.join("suite1.yml")
+        yaml2 = dir2.join("suite2.yml")
+
+        yaml1.write(yaml.dump({
+            "suite_name": "first_suite",
+            "checks": [
+                {
+                    "check_id": "first_check",
+                    # The base check used here is not important...
+                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "parameters": {}
+                },
+                {"__INCLUDE__": "../dir2/suite2.yml"}
+            ]
+        }))
+
+        yaml2.write(yaml.dump({
+            "suite_name": "this_should_not_be_seen",
+            "checks": [
+                {
+                    "check_id": "included_check1",
+                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "parameters": {"some_var": "some_value"}
+                },
+                {
+                    "check_id": "included_check2",
+                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "parameters": {"another_var": "another_value"}
+                }
+            ]
+        }))
+
+        # Try generating the combined YAML from different directories to check
+        # relative path lookup
+        dirs = (tmpdir, dir1, dir2, dir3)
+        for d in dirs:
+            with d.as_cwd():
+                cls = YamlParser.get_checker_class(str(yaml1))
+
+                assert cls.__name__ == "first_suite"
+                assert self.get_check_method_names(cls) == [
+                    "check_first_check", "check_included_check1", "check_included_check2"
+                ]
+
+    def test_include_absolute_path(self, tmpdir):
+        yaml1 = tmpdir.join("yaml1.yml")
+        yaml2 = tmpdir.join("yaml2.yml")
+
+        yaml1.write(yaml.dump({
+            "suite_name": "first_suite",
+            "checks": [{"__INCLUDE__": str(yaml2)}]
+        }))
+
+        yaml2.write(yaml.dump({
+            "suite_name": "included_suite",
+            "checks": [
+                {
+                    "check_id": "included_check",
+                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "parameters": {"var": "value"}
+                }
+            ]
+        }))
+
+        cls = YamlParser.get_checker_class(str(yaml1))
+        assert self.get_check_method_names(cls) == ["check_included_check"]
+
+    def test_invalid_config_in_included_file(self, tmpdir):
+        """
+        Check that a validation error is raised if an included file is not
+        valid
+        """
+        yaml1 = tmpdir.join("yaml1.yml")
+        yaml2 = tmpdir.join("yaml2.yml")
+
+        yaml1.write(yaml.dump({
+            "suite_name": "first_suite",
+            "checks": [{"__INCLUDE__": "yaml2.yml"}]
+        }))
+
+        yaml2.write(yaml.dump({
+            "suite_name": "included_suite",
+            "checks": [
+                {
+                    "cheque_id": "included_check",
+                    "check_nom": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "purumuters": {"var": "value"}
+                }
+            ]
+        }))
+
+        with pytest.raises(ValueError):
+            cls = YamlParser.get_checker_class(str(yaml1))
+
+    def test_recursive_include(self, tmpdir):
+        """
+        Check that includes can be recursive, i.e 1 includes 2 which includes 3
+        will result in checks from 1 + 2 + 3
+        """
+        # Note: create 1 in different dir to 2 and 3, so that we check the
+        # path to 3 is resolved relative to 2 (not relative to 1)...
+        dir1 = tmpdir.mkdir("dir1")
+        dir2 = tmpdir.mkdir("dir2")
+        yaml1 = dir1.join("yaml1.yml")
+        yaml2 = dir2.join("yaml2.yml")
+        yaml3 = dir2.join("yaml3.yml")
+
+        def get_check(name):
+            return {
+                "check_id": "from_{}".format(name),
+                "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                "parameters": {}
+            }
+
+        yaml1.write(yaml.dump({
+            "suite_name": "one",
+            "checks": [
+                get_check("one"),
+                {"__INCLUDE__": "../dir2/yaml2.yml"}
+            ]
+        }))
+
+        yaml2.write(yaml.dump({
+            "suite_name": "two",
+            "checks": [
+                get_check("two"),
+                {"__INCLUDE__": "yaml3.yml"}
+            ]
+        }))
+
+        yaml3.write(yaml.dump({
+            "suite_name": "three",
+            "checks": [
+                get_check("three"),
+            ]
+        }))
+
+        cls = YamlParser.get_checker_class(str(yaml1))
+        assert self.get_check_method_names(cls) == [
+            "check_from_one", "check_from_three", "check_from_two"
+        ]

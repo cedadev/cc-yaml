@@ -8,36 +8,34 @@ from copy import deepcopy
 import yaml
 
 from cc_yaml.yaml_parser import YamlParser
-from checklib.register import ParameterisableCheckBase
-from compliance_checker.base import BaseCheck
+from compliance_checker.base import BaseCheck, Dataset
+
+
+class BaseTestCheckClass(object):
+    supported_ds = []
+    def __init__(self, params, level="MEDIUM"):
+        pass
+    def __call__(self, ds):
+        return None
 
 
 # Create test checks for checking the supported_ds property in the generated
 # check class. For simplicity here dataset types are ints
-class SupportDsTestCheckClass1(ParameterisableCheckBase):
+class SupportDsTestCheckClass1(BaseTestCheckClass):
     supported_ds = [1, 2, 3]
 
 
-class SupportDsTestCheckClass2(ParameterisableCheckBase):
+class SupportDsTestCheckClass2(BaseTestCheckClass):
     supported_ds = [2, 3, 4]
 
 
-# Create base check used to test that the parameters in the config are
-# validated against required_parameters property in the base check
-class RequiredParamsTestCheckClass(ParameterisableCheckBase):
-    required_parameters = {
-        "one": str, "two": list, "three": dict, "four": int
-    }
-
-
-# Base check to test default parameters
-class DefaultParamsTestCheckClass(ParameterisableCheckBase):
-    defaults = {"one": "hello"}
-    required_parameters = {"one": str}
-
-    def do_check(self, ds):
-        """Return parameter here so we can check it is present in the test"""
-        return self.kwargs["one"]
+class BasicTestCheck(object):
+    supported_ds = [Dataset]
+    def __init__(self, params, level=None):
+        self.params = params
+        self.level = level
+    def __call__(self, ds):
+        return (self.params, self.level)
 
 
 class TestYamlParsing(object):
@@ -85,7 +83,7 @@ class TestYamlParsing(object):
         valid_config = {"suite_name": "hello",
                         "checks": [{
                             "check_id": "one", "parameters": {},
-                            "check_name": "checklib.register.FileSizeCheck"
+                            "check_name": self.get_import_string("BasicTestCheck")
                         }]}
 
         c1 = deepcopy(valid_config)
@@ -115,13 +113,13 @@ class TestYamlParsing(object):
         """
         Check that a checker class is generated correctly
         """
-        # TODO: Confirm that the base check actually runs
-        check_cls = "checklib.register.FileSizeCheck"
+        check_cls = self.get_import_string("BasicTestCheck")
         config = {
             "suite_name": "test_suite",
             "checks": [
-                {"check_id": "one", "parameters": {}, "check_name": check_cls},
-                {"check_id": "two", "parameters": {}, "check_name": check_cls}
+                {"check_id": "one", "parameters": {"a": 42}, "check_name": check_cls},
+                {"check_id": "two", "parameters": {"a": 19}, "check_name": check_cls,
+                 "check_level": "LOW"}
             ]
         }
         new_class = YamlParser.get_checker_class(config)
@@ -133,6 +131,11 @@ class TestYamlParsing(object):
 
         # Check name is correct
         assert new_class.__name__ == "test_suite"
+
+        # Check the class methods return the expected values
+        checker = new_class()
+        assert checker.check_one("dataset") == ({"a": 42}, None)
+        assert checker.check_two("dataset") == ({"a": 19}, "LOW")
 
     def test_supported_ds(self):
         valid_config = {
@@ -149,69 +152,6 @@ class TestYamlParsing(object):
         # Supported datasets for generated class should be types common to both
         # checks
         assert check_cls.supported_ds == [2, 3]
-
-    def test_parameter_validation(self):
-        """
-        Check that the parameters section of the config is validated against
-        the required parameters for the base check
-        """
-        invalid_params = [
-            # "three" missing
-            ({"one": "string here", "two": ["list", "of", "things"],
-              "four": 14}, ValueError),
-
-            # "one" wrong type
-            ({"one": ["not", "a", "string"], "two": [1, 2], "three": {1: 2},
-              "four": 14}, TypeError)
-        ]
-
-        check_name = self.get_import_string("RequiredParamsTestCheckClass")
-        config = {
-            "suite_name": "test_suite",
-            "checks": [{"check_id": "one", "parameters": {},
-                        "check_name": check_name}]
-        }
-
-        for params, ex in invalid_params:
-            config["checks"][0]["parameters"] = params
-
-            with pytest.raises(ex):
-                checker_cls = YamlParser.get_checker_class(config)
-
-        # Try one with valid params and check no exceptions raised
-        config["checks"][0]["parameters"] = {
-            "one": "string here",
-            "two": ["list", "of", "things"],
-            "three": {1: 2},
-            "four": 14
-        }
-        try:
-            checker_cls = YamlParser.get_checker_class(config)
-        except (ValueError, TypeError) as ex:
-            assert False, "Valid config was incorrectly marked as invalid: {}".format(ex)
-
-    def test_default_parameters(self):
-        """
-        Check that missing parameters are copied over from the 'defaults'
-        property when generating a check class
-        """
-        config = {
-            "suite_name": "test_suite",
-            "checks": [{"check_id": "one", "parameters": {},
-                        "check_name": self.get_import_string("DefaultParamsTestCheckClass")}]
-        }
-        try:
-            checker_cls = YamlParser.get_checker_class(config)
-        except ValueError:
-            assert False, ("Config marked as invalid due to missing field - "
-                           "defaults probably not copied over")
-        checker = checker_cls()
-        try:
-            val = checker.check_one("dataset")
-        except KeyError:
-            assert False, "Default parameter not copied"
-
-        assert val == "hello"
 
     def test_include_other_yaml_file(self, tmpdir):
         """
@@ -231,7 +171,7 @@ class TestYamlParsing(object):
                 {
                     "check_id": "first_check",
                     # The base check used here is not important...
-                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "check_name": self.get_import_string("BasicTestCheck"),
                     "parameters": {}
                 },
                 {"__INCLUDE__": "../dir2/suite2.yml"}
@@ -243,12 +183,12 @@ class TestYamlParsing(object):
             "checks": [
                 {
                     "check_id": "included_check1",
-                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "check_name": self.get_import_string("BasicTestCheck"),
                     "parameters": {"some_var": "some_value"}
                 },
                 {
                     "check_id": "included_check2",
-                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "check_name": self.get_import_string("BasicTestCheck"),
                     "parameters": {"another_var": "another_value"}
                 }
             ]
@@ -280,7 +220,7 @@ class TestYamlParsing(object):
             "checks": [
                 {
                     "check_id": "included_check",
-                    "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "check_name": self.get_import_string("BasicTestCheck"),
                     "parameters": {"var": "value"}
                 }
             ]
@@ -307,7 +247,7 @@ class TestYamlParsing(object):
             "checks": [
                 {
                     "cheque_id": "included_check",
-                    "check_nom": self.get_import_string("DefaultParamsTestCheckClass"),
+                    "check_nom": self.get_import_string("BasicTestCheck"),
                     "purumuters": {"var": "value"}
                 }
             ]
@@ -332,7 +272,7 @@ class TestYamlParsing(object):
         def get_check(name):
             return {
                 "check_id": "from_{}".format(name),
-                "check_name": self.get_import_string("DefaultParamsTestCheckClass"),
+                "check_name": self.get_import_string("BasicTestCheck"),
                 "parameters": {}
             }
 

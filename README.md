@@ -3,18 +3,19 @@
 This repo holds a [compliance-checker](https://github.com/ioos/compliance-checker)
 plugin that generates check suites from YAML descriptions.
 
-It is to be used with the [generator-plugins branch](https://github.com/joesingo/compliance-checker/tree/generator-plugins)
+It is to be used with the
+[generator-plugins branch](https://github.com/joesingo/compliance-checker/tree/generator-plugins)
 of my fork of `compliance-checker`.
 
 ## Installation
 
-To set up you must install `compliance-checker` itself, this plugin (`cc-yaml`)
-and `compliance-check-lib`.
+To set up you must install `compliance-checker` itself and this plugin (`cc-yaml`).
+
+(**TODO:** finalise location and branch for `compliance-checker` and `cc-yaml`)
 
 ```
 pip install -e git+https://github.com/joesingo/compliance-checker@generator-plugins
 pip install -e git+https://github.com/joesingo/cc-yaml
-pip install -e git+https://github.com/joesingo/compliance-check-lib@cc-yaml
 
 compliance-checker --yaml <path-to-YAML-file> --test <test name> <dataset>
 ```
@@ -24,12 +25,14 @@ compliance-checker --yaml <path-to-YAML-file> --test <test name> <dataset>
 This plugin allows check suites to be generated from *base checks* using YAML
 files containing parameters to call these base checks with.
 
-Currently all available *base checks* are in the [compliance-check-lib](https://github.com/joesingo/compliance-check-lib)
-repo (along with the base class required to create your own checks).
+This allows you to write generic check methods that can be used across
+different projects and called with different parameters (which can be
+project-specific).
 
 ### Example
 
-An example YAML file is shown below.
+An example YAML file is shown below. It uses base checks from
+[compliance-check-lib](https://github.com/cedadev/compliance-check-lib).
 
 ```yaml
 suite_name: "custom-check-suite"
@@ -70,79 +73,66 @@ compliance-checker --yaml <path-to-YAML-file> --test custom-check-suite <dataset
 
 ### Base Checks
 
-Each base check is represented as a sub-class of the `ParameterisableCheckBase` class in
-`compliance-check-lib`. A simple example showing all the available functionality is shown
-below. The actual check performed tests if the filename of a dataset contains a given
-substring.
+Each base check is represented as a class implementing the following interface:
 
-```python
-from compliance_checker.base import Result, Dataset, GenericFile
+* **Define a property `supported_ds`**. This should be a list of dataset types
+  acceptable to run this check on. For example, this could be `[Dataset]` to
+  run checks against NetCDF files only, or `[Dataset, GenericFile]` to check
+  any file (including NetCDF files). Here `Dataset` and `GenericFile` are
+  defined in `compliance_checker.base`.
 
-from checklib.register import ParameterisableCheckBase
+* **Take a dictionary of parameters as first argument to `__init__`** (this is
+  the value of `parameters` in the YAML file)
 
+* **Accept `level` as an optional kwarg to `__init__`** (this is the value of
+  `check_level` from the YAML file)
 
-class SubstringCheck(ParameterisableCheckBase):
+* **Implement `__call__(self, ds)`**. Here `ds` is the dataset object
+  constructed by compliance-checker (it will always be one of the types in
+  `supported_ds`). The return value from this method should be the same as for
+  any other compliance-checker check method. Documentation can be found on the
+  [compliance-checker development wiki page](https://github.com/ioos/compliance-checker/wiki/Development).
 
-    supported_ds = [Dataset, GenericFile]
-    short_name = "Substring check: '{string}'"
-    message_templates = ["Filename does not contain '{string}' as a substring"]
-    level = "MEDIUM"
-    defaults = {"string": "default-substring"}
-    required_parameters = {"string": str, "some_other_param": dict}
+A minimal example is provided below. This example check succeeds if a dataset
+contains a given variable. The variable name is extracted from the YAML file.
 
-    def _setup(self):
-        # Override this method to perform validation or modification of arguments
-        pass
+```
+from compliance_checker.base import BaseCheck, Dataset, Result
 
-    def _check_primary_arg(self, ds):
-        # Override this method to perform any checks on the dataset before
-        # running the check
-        pass
+class VariableExistsCheck(object):
+    supported_ds = [Dataset]
 
-    def _get_result(self, ds):
+    level = BaseCheck.MEDIUM
+
+    def __init__(self, params, level=None):
+        self.var_id = params["var_id"]
+        if level:
+            self.level = getattr(BaseCheck, level)
+
+    def __call__(self, ds):
         messages = []
-        if self.kwargs["string"] in ds.filepath():
-            score = self.out_of
-        else:
-            score = 0
-            messages.append(self.get_messages()[0])
+        success = self.var_id in ds.variables
+        if not success:
+            messages.append("Variable {} not found in dataset".format(self.var_id))
 
-        return Result(self.level, (score, self.out_of), self.get_short_name(),
-                      messages)
+        return Result(
+            weight=self.level,
+            value=success,
+            name="Variable '{}' check".format(self.var_id),
+            msgs=messages
+        )
 ```
 
-Properties:
+### compliance-check-lib
 
-* `supported_ds` should be a list of dataset types acceptable to run this check
-  on, as with the `supported_ds` property in usual check suite classes. If not
-  given it default to `Dataset` only.
-* `short_name` is a template string for the name of the check that can be shown
-  in the output. It is constructed by calling `self.get_short_name()`, which uses
-  standard python string formatting by passing the parameters given in the YAML
-  config as keyword arguments to the `format` method.
-* `message_templates` is a list of strings to be used as error messages if parts
-  of the check fail. They can be retrieved with `self.get_messages()` and are
-  formatted in the same way as `short_name`. The length of this list determines
-  `self.out_of`, which is the number of points available for the check.
-* `level` is one of HIGH, MEDIUM or LOW and can be used when returning the
-  `Result` object for the check (the value specified here is the default - it
-  can be overridden in the YAML config).
-* `defaults` is a dictionary containing the default parameters to use for the
-  check for any parameters not specified in the YAML config.
-* `required_parameters` is a dictionary listing all parameters that *must* be
-  present in the YAML config, and the types they should be (e.g. `str`, `list`,
-  `int`, `float`, `dict` etc...). An error is thrown when parsing the YAML
-  config if any parameters are missing or of an incorrect type.
+The interface described above has been designed to be as general as possible.
+The [compliance-check-lib](https://github.com/cedadev/compliance-check-lib)
+library provides a base class `CallableCheckBase` that implements this
+interface and provides extra features, such default parameters and validation
+of required parameters from YAML.
 
-Methods:
-
-* `_setup` is called after the class is initialised and before the check is run.
-* `_check_primary_arg` is called when the check is run, and if passed the dataset as an argument.
-  Raise a `FileError` from here (from `checklib.code.errors`) to cancel the check and return a
-  score of 0.
-* `_get_result` is called after `_check_primary_arg` and is where the actual checking happens.
-  Parameters from the YAML config are stored as a dictionary in `self.kwargs`.
-  This method should return a `Result` object in the same way an ordinary check method would.
+It also contains a plethora of real-world checks to use as examples:
+[see the code on GitHub](https://github.com/cedadev/compliance-check-lib/tree/master/checklib/register).
 
 ### Including other YAML files
 

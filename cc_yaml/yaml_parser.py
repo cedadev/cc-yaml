@@ -64,20 +64,12 @@ class YamlParser(object):
             module = importlib.import_module(".".join(parts[:-1]))
             check_cls = getattr(module, parts[-1])
 
-            # Validate parameters
-            params = {}
-            params.update(check_cls.defaults)
-            params.update(check_info["parameters"])
-            if hasattr(check_cls, "required_parameters"):
-                try:
-                    for key, expected_type in check_cls.required_parameters.items():
-                        cls.validate_field(key, expected_type, params, True)
-                except (ValueError, TypeError) as ex:
-                    msg = "Invalid parameters in YAML file: {}".format(ex)
-                    raise ex.__class__(msg)
-
-            level_str = check_info.get("check_level", None)
-            check_instance = check_cls(params, level=level_str)
+            kwargs = {}
+            try:
+                kwargs["level"] = check_info["check_level"]
+            except KeyError:
+                pass
+            check_instance = check_cls(check_info["parameters"], **kwargs)
 
             # Create function that will become method of the new class. Specify
             # check_instance as a default argument so that it is evaluated when
@@ -85,7 +77,7 @@ class YamlParser(object):
             # to check_instance which changes as the for loop progresses, so
             # only the last check is run
             def inner(self, ds, c=check_instance):
-                return c.do_check(ds)
+                return c(ds)
 
             inner.__name__ = str(method_name)
             class_properties[method_name] = inner
@@ -164,7 +156,7 @@ class YamlParser(object):
             if "check_level" in check_info and check_info["check_level"] not in allowed_levels:
                 raise ValueError("Check level must be one of {}".format(", ".join(allowed_levels)))
 
-        if len(config["checks"]) == 0:
+        if not config["checks"]:
             raise ValueError("List of checks cannot be empty")
 
     @classmethod

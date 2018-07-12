@@ -96,7 +96,7 @@ Each base check is represented as a class implementing the following interface:
 A minimal example is provided below. This example check succeeds if a dataset
 contains a given variable. The variable name is extracted from the YAML file.
 
-```
+```python
 from compliance_checker.base import BaseCheck, Dataset, Result
 
 class VariableExistsCheck(object):

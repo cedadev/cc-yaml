@@ -60,10 +60,7 @@ class YamlParser(object):
             method_name = "check_{}".format(check_info["check_id"])
 
             # Instantiate a check object using the params from the config
-            parts = check_info["check_name"].split(".")
-            module = importlib.import_module(".".join(parts[:-1]))
-            check_cls = getattr(module, parts[-1])
-
+            check_cls = YamlParser.get_base_check_cls(check_info["check_name"])
             kwargs = {}
             try:
                 kwargs["level"] = check_info["check_level"]
@@ -127,6 +124,18 @@ class YamlParser(object):
                 new_checks.append(check_info)
 
         config["checks"] = new_checks
+
+    @classmethod
+    def get_base_check_cls(cls, base_check_str):
+        """
+        Parse a string specifying the base check and return the class
+        :param base_check_str: Path to class as a string in the form
+                               <package>.<module>.<class name>
+        :return:               Class object
+        """
+        parts = base_check_str.split(".")
+        module = importlib.import_module(".".join(parts[:-1]))
+        return getattr(module, parts[-1])
 
     @classmethod
     def validate_config(cls, config):

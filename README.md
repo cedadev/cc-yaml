@@ -4,8 +4,8 @@ This repo holds a [compliance-checker](https://github.com/ioos/compliance-checke
 plugin that generates check suites from YAML descriptions.
 
 It is to be used with the
-[generator-plugins branch](https://github.com/cedadev/compliance-checker/tree/generator-plugins)
-of my fork of `compliance-checker`.
+[cedadev fork](https://github.com/cedadev/compliance-checker)
+of `compliance-checker` that allows plugins to generate check suites.
 
 ## Installation
 

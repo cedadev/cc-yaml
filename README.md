@@ -4,18 +4,16 @@ This repo holds a [compliance-checker](https://github.com/ioos/compliance-checke
 plugin that generates check suites from YAML descriptions.
 
 It is to be used with the
-[generator-plugins branch](https://github.com/joesingo/compliance-checker/tree/generator-plugins)
+[generator-plugins branch](https://github.com/cedadev/compliance-checker/tree/generator-plugins)
 of my fork of `compliance-checker`.
 
 ## Installation
 
 To set up you must install `compliance-checker` itself and this plugin (`cc-yaml`).
 
-(**TODO:** finalise location and branch for `compliance-checker` and `cc-yaml`)
-
 ```
-pip install -e git+https://github.com/joesingo/compliance-checker@generator-plugins
-pip install -e git+https://github.com/joesingo/cc-yaml
+pip install -e git+https://github.com/cedadev/compliance-checker
+pip install -e git+https://github.com/cedadev/cc-yaml
 
 compliance-checker --yaml <path-to-YAML-file> --test <test name> <dataset>
 ```

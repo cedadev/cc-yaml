@@ -14,13 +14,13 @@ class SuiteGenerator(object):
                                              "check suites from")
 
     @classmethod
-    def get_suites(cls, args):
+    def get_checkers(cls, args):
         """
         :param args: argparse arguments object
         :return:     dictionary mapping check name to checker class
         """
-        suites = {}
+        checkers = {}
         for filename in args.yaml_files:
-            suite = YamlParser.get_checker_class(filename)
-            suites[suite.__name__] = suite
-        return suites
+            checker = YamlParser.get_checker_class(filename)
+            checkers[checker.__name__] = checker
+        return checkers

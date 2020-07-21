@@ -3,6 +3,7 @@ import os
 
 import yaml
 
+from compliance_checker import __version__ as cc_check_version
 from compliance_checker.base import BaseCheck
 
 
@@ -23,7 +24,7 @@ class YamlParser(object):
         :return: YAML object as a dict
         """
         with open(filename) as f:
-            config = yaml.load(f)
+            config = yaml.load(f, Loader=yaml.FullLoader)
         if not isinstance(config, dict):
             raise TypeError("Could not parse dictionary from YAML file '{}'"
                             .format(filename))
@@ -51,17 +52,19 @@ class YamlParser(object):
 
         # Build the attributes and methods for the generated class
         class_properties = {
-            "_cc_spec_version": "1"
+            "_cc_spec_version": cc_check_version
         }
 
         supported_ds_sets = []
 
         for check_info in config["checks"]:
+ 
             method_name = "check_{}".format(check_info["check_id"])
 
             # Instantiate a check object using the params from the config
             check_cls = YamlParser.get_base_check_cls(check_info["check_name"])
             kwargs = {}
+
             try:
                 kwargs["level"] = check_info["check_level"]
             except KeyError:

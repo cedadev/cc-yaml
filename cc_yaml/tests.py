@@ -48,7 +48,7 @@ class TestYamlParsing(object):
         return "{}.{}".format("cc_yaml.tests", cls)
 
     def get_check_method_names(self, cls):
-        method_names = [x[0] for x in inspect.getmembers(cls, inspect.ismethod)]
+        method_names = [x[0] for x in inspect.getmembers(cls, inspect.isfunction)]
         return sorted([x for x in method_names if x.startswith("check_")])
 
     def test_missing_keys(self):
